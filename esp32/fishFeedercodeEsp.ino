@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <WiFi.h>
+#include <ESP8266WiFi.h>
 
 #include <FirebaseESP32.h>
 #include <NTPClient.h>
@@ -12,33 +12,15 @@
 #define FIREBASE_AUTH "AIzaSyAkJnRiEeAwfSSLv7-2xdfUhTTKFrlVoXY"
 
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 19800);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 28800, 19800);
 
 FirebaseData timer, feed, sensor;
 FirebaseConfig config;
 
 String stimer;
-String Str[] = { "00:00", "00:00", "00:00" };
+String Str[] = { "00:00", "00:00", "00:00", "00:00", "00:00", "00:00", "00:00", "00:00", "00:00", "00:00" };
 String values, sensor_data;
 int i, feednow = 0;
-
-void checkSchedules() { // checks schedules
-  for (i = 0; i < 3; i++) {
-    String path = "timers/timer" + String(i);
-    Firebase.getString(timer, path);
-    stimer = timer.to<String>();
-    Str[i] = stimer.substring(9, 14);
-  }
-  timeClient.update();
-  String currentTime = String(timeClient.getHours()) + ":" + String(timeClient.getMinutes());
-  if (Str[0] == currentTime || Str[1] == currentTime || Str[2] == currentTime) {  // stop rotation
-    Serial.println("2");
-    delay(60000); // delay for 1 minute
-  }
-  Str[0] = "00:00";
-  Str[1] = "00:00";
-  Str[2] = "00:00";
-}
 
 void checkFeednow() {
   Firebase.getInt(feed, "feednow");
@@ -49,6 +31,31 @@ void checkFeednow() {
     feednow = 0;
     Firebase.setInt(feed, "/feednow", feednow);
   }
+}
+
+void checkSchedules() {
+  int n;
+  Firebase.getInt(feed, "count");
+  n = feed.to<int>();
+  timeClient.update();
+  String currentTime = String(timeClient.getHours()) + ":" + String(timeClient.getMinutes());
+
+  for (i = 0; i < n; i++) {
+    String path = "timers/timer" + String(i) + "/time";
+    Firebase.getString(timer, path);
+    stimer = timer.to<String>();
+    Str[i] = stimer.substring(0, 5);
+  }
+  for (int j = 0; j < n; j++) {
+    if (Str[j] == currentTime) {
+      Serial.println("2");
+      delay(60000);
+    }
+  }
+  for (i = 0; i < n; i++) {  // clear
+    Str[i] = "00:00";
+  }
+  delay(3000);
 }
 
 void setup() {
@@ -62,6 +69,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  timeClient.update();
   bool Sr = false;
   while (Serial.available() > 0) {
     sensor_data = Serial.readString();

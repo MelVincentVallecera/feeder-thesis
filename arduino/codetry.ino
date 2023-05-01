@@ -212,20 +212,23 @@ void setup() {
 
   pinMode(trigUltra_Pin, OUTPUT);  // ultrasonic for feeds
   pinMode(echoUltra_Pin, INPUT);
-
+  
+  digitalWrite(motor_Pin, HIGH);  //turns off motor               //delay by 2s
+  digitalWrite(blower_Pin, HIGH);
   sensors.begin();  // temperature sensor
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   getSensorData();
-  values = (phLevel + ',' + dissolvedOxygen + ',' + ammoniaLevel + ',' + waterLevel + ',' + waterTemp + ',' + feedsLevel);
+  values = (dissolvedOxygen + ',' + waterTemp + ',' + waterLevel + ',' + feedsLevel + ',' + phLevel + ',' + ammoniaLevel);
   Serial.flush();
   delay(1000);
-  Serial.print(values);
+  Serial.println(values);
 
   if (Serial.available() > 0) {
     RXData = Serial.read();
+    switch(RXData) {
     case '1':
       Serial.flush();
       getSensorData();
@@ -238,7 +241,7 @@ void loop() {
       delay(2000);
       run_Dispense(feedsLevel, dissolvedOxygen, phLevel, ammoniaLevel, waterLevel, waterTemp);
       break;
+    }
   }
-}
 delay(2000);
 }
