@@ -2,6 +2,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+// Define pins for Sensors
 #define ONE_WIRE_BUS 14
 #define motor_Pin 13
 #define blower_Pin 12
@@ -9,7 +10,7 @@
 #define trigUltra_Pin 10
 #define DO_Pin 9
 #define IR_Pin 8
-#define ammoniaAO_Pin 7
+#define ammoniaAO_Pin A1
 #define ammoniaDO_Pin 6
 #define phTO_Pin 5
 #define phPO_Pin A0
@@ -17,7 +18,6 @@
 #define trigWater_Pin 2
 
 #define TWO_POINT_CALIBRATION 0
-#define READ_TEMP (29)
 #define VREF 5000      //VREF (mv)
 #define ADC_RES 1024   //ADC Resolution
 #define CAL1_V (131)   //mv
@@ -25,7 +25,21 @@
 #define CAL2_V (1300)  //mv
 #define CAL2_T (15)    //℃
 
-#define DO_SA
+#define RL 10
+#define mo -0.263
+#define bo 0.42
+#define Ro 30
+
+// Define feeding parameters
+#define MAX_FEEDING 450  // Maximum amount of feed to give
+#define MIN_FEEDING 150  // Minimum amount of feed to give
+#define PH_TARGET 7.0    // Target PH value
+#define TEMP_TARGET 25   // Target water temperature
+#define DO_TARGET 7.0    // Target dissolved oxygen level
+
+#define PH_TOLERANCE 0.2
+#define TEMP_TOLERANCE 1
+#define DO_TOLERANCE 0.5
 
 const uint16_t DO_Table[41] = {
   14460, 14220, 13820, 13440, 13090, 12740, 12420, 12110, 11810, 11530,
@@ -67,12 +81,12 @@ int16_t readDO(uint32_t voltage_mv, uint8_t temperature_c) {
 }
 
 void getSensorData() {  // trigger to get all sensor data
-  dissolvedOxygen = getDO();
-  ammoniaLevel = getAmmonia();
-  phLevel = getPh();
   waterLevel = getWaterLvl();
   waterTemp = getWaterTemp();
   feedsLevel = getFeedsLvl();
+  dissolvedOxygen = getDO(waterTemp);
+  ammoniaLevel = getAmmonia();
+  phLevel = getPh();
 }
 
 int getWaterLvl() {  // get water level
@@ -118,9 +132,9 @@ String getFeedsLvl() {
   }
 }
 
-String getDO() {
+String getDO(int temp) {
   String DO;
-  Temperaturet = (uint8_t)READ_TEMP;
+  Temperaturet = temp;
   ADC_Raw = analogRead(DO_Pin);
   delay(10);
   ADC_Voltage = uint32_t(VREF) * ADC_Raw / ADC_RES;
@@ -130,6 +144,13 @@ String getDO() {
 
 float getAmmonia() {
   float ammonia;
+  float VRL;
+  float Rs;
+  float ratio;
+  VRL = analogRead(ammoniaAO_Pin) * (5.0 / 1023.0);
+  Rs = ((5.0 * RL) / VRL) - RL;
+  ratio = Rs / Ro;
+  ammonia = pow(10, ((log10(ratio) - bo) / mo));
   return ammonia;
 }
 
@@ -157,9 +178,34 @@ float getPh() {
   return phValue;
 }
 
-void run_Dispense(String feedsLevel, String dissolvedOxygen, float phLevel, float ammoniaLevel, int waterLevel, float waterTemp) {  //controls dispensing
-  int feedAmount = calculate_feed_dispense(feedsLevel, dissolvedOxygen, phLevel, ammoniaLevel, waterLevel, waterTemp);
-  int duration = calculate_feed_time(feedAmount);
+void feedNow() {
+  digitalWrite(motor_Pin, LOW);   //turns on motor
+  digitalWrite(blower_Pin, LOW);  //turns on blower
+  delay(3000);
+  digitalWrite(motor_Pin, HIGH);  //turns off motor
+  delay(2000);                    //delay by 2s
+  digitalWrite(blower_Pin, HIGH);
+}
+
+void run_Dispense(String feedsLevel, String dissolvedOxygen, float phLevel, float waterTemp) {  //controls dispensing
+  int feedAmount = 0;
+  int duration = 0;
+  int delayTime = 0;
+  DO = dissolvedOxygen.toFloat();
+  if (feedsLevel != 'Empty') {
+    if (abs(phLevel - PH_TARGET) <= PH_TOLERANCE && abs(waterTemp - TEMP_TARGET) <= TEMP_TOLERANCE && abs(DO - DO_TARGET) <= DO_TOLERANCE) {
+      feedAmount = calculate_feed_dispense(DO, phLevel, waterTemp);
+      duration = calculate_feed_time(feedAmount);
+      dispenseFeed(duration);
+    } else {
+      delayTime = map(abs(PH_TARGET - phLevel) + abs(TEMP_TARGET - waterTemp) + abs(DO_TARGET - DO), 0, 15, 0, 30);
+      delay(delayTime * 1000);
+      feedNow();
+    }
+  }
+}
+
+void dispenseFeed(int duration) {
   digitalWrite(motor_Pin, LOW);   //turns on motor
   digitalWrite(blower_Pin, LOW);  //turns on blower
   delay(duration);
@@ -168,28 +214,9 @@ void run_Dispense(String feedsLevel, String dissolvedOxygen, float phLevel, floa
   digitalWrite(blower_Pin, HIGH);  //turns off blower
 }
 
-void feedNow() {
-  digitalWrite(motor_Pin, LOW);   //turns on motor
-  digitalWrite(blower_Pin, LOW);  //turns on blower
-  delay(2000);
-  digitalWrite(motor_Pin, HIGH);  //turns off motor
-  delay(2000);                    //delay by 2s
-  digitalWrite(blower_Pin, HIGH);
-}
-
-int calculate_feed_dispense(String feedsLevel, String dissolvedOxygen, float phLevel, float ammoniaLevel, int waterLevel, float waterTemp) {
+int calculate_feed_dispense(float DO, float ph, float temp) {
   int feed_amount = 0;
-  DO = dissolvedOxygen.toInt();
-  if (feedsLevel != 'Empty') {
-    if (DO > 6 && phLevel > 5 && phLevel < 8 && waterTemp > 20) {
-      feed_amount = 300;
-    }
-    if (DO > 6 && phLevel > 4 && phLevel < 9 && waterTemp > 20) {
-      feed_amount = 200;
-    } else {
-      feed_amount = 100;
-    }
-  }
+  feed_amount = map(abs(PH_TARGET - ph) + abs(TEMP_TARGET - temp) + abs(DO_TARGET - DO), 0, 15, MAX_FEEDING, MIN_FEEDING);
   return feed_amount;
 }
 
@@ -212,7 +239,7 @@ void setup() {
 
   pinMode(trigUltra_Pin, OUTPUT);  // ultrasonic for feeds
   pinMode(echoUltra_Pin, INPUT);
-  
+
   digitalWrite(motor_Pin, HIGH);  //turns off motor               //delay by 2s
   digitalWrite(blower_Pin, HIGH);
   sensors.begin();  // temperature sensor
@@ -223,25 +250,25 @@ void loop() {
   getSensorData();
   values = (dissolvedOxygen + ',' + waterTemp + ',' + waterLevel + ',' + feedsLevel + ',' + phLevel + ',' + ammoniaLevel);
   Serial.flush();
-  delay(1000);
+  delay(2000);
   Serial.println(values);
 
   if (Serial.available() > 0) {
     RXData = Serial.read();
-    switch(RXData) {
-    case '1':
-      Serial.flush();
-      getSensorData();
-      delay(2000);
-      feedNow();
-      break;
-    case '2':
-      Serial.flush();
-      getSensorData();
-      delay(2000);
-      run_Dispense(feedsLevel, dissolvedOxygen, phLevel, ammoniaLevel, waterLevel, waterTemp);
-      break;
+    switch (RXData) {
+      case '1':
+        Serial.flush();
+        getSensorData();
+        delay(2000);
+        feedNow();
+        break;
+      case '2':
+        Serial.flush();
+        getSensorData();
+        delay(2000);
+        run_Dispense(feedsLevel, dissolvedOxygen, phLevel, waterTemp);
+        break;
     }
   }
-delay(2000);
+  delay(2000);
 }
