@@ -353,7 +353,7 @@ html {
 @media screen and (max-width: 900px) {
     .card {
         grid-column: 1/2;
-        width: 15rem;
+        width: 10rem;
         height: 5rem;
         border-radius: 1rem;
         background-color: white;
@@ -364,7 +364,7 @@ html {
     }
     .card2 {
         grid-column: 2/2;
-        width: 15rem;
+        width: 10rem;
         height: 5rem;
         border-radius: 1rem;
         background-color: white;
@@ -380,26 +380,26 @@ html {
         grid-gap: 2rem;
     }
     .container {
-        min-height: 100%;
+        min-height: 50%;
         display: flex;
         justify-content: center;
         align-items: center;
         font-family: "Poppins", sans-serif;
         background: var(--greyLight-1);
-        padding-top: 20%;
+        padding-top: 10%;
     }
     .components {
         width: 80%;
         height: 60%;
         border-radius: 3rem;
         box-shadow: 0.8rem 0.8rem 1.4rem var(--greyLight-2), -0.2rem -0.2rem 1.8rem var(--white);
-        padding: 4.5rem;
+        padding: 2rem;
         display: grid;
         grid-template-columns: repeat(autofit, min-content);
         grid-template-rows: repeat(autofit, -webkit-min-content);
         grid-template-rows: repeat(autofit, min-content);
         grid-column-gap: 1.5rem;
-        grid-row-gap: 2.5rem;
+        grid-row-gap: 3.5rem;
         align-items: center;
     }
     .components2 {
@@ -432,7 +432,7 @@ html {
     }
     /*  BUTTONS  */
     .btn {
-        width: 15rem;
+        width: 12rem;
         height: 4rem;
         border-radius: 1rem;
         box-shadow: 0.3rem 0.3rem 0.6rem var(--greyLight-2), -0.2rem -0.2rem 0.5rem var(--white);

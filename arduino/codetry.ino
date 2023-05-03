@@ -3,19 +3,17 @@
 #include <DallasTemperature.h>
 
 // Define pins for Sensors
-#define ONE_WIRE_BUS 14
 #define motor_Pin 13
 #define blower_Pin 12
 #define echoUltra_Pin 11
 #define trigUltra_Pin 10
-#define DO_Pin 9
-#define IR_Pin 8
-#define ammoniaAO_Pin A1
+#define ONE_WIRE_BUS 8
 #define ammoniaDO_Pin 6
-#define phTO_Pin 5
-#define phPO_Pin A0
 #define echoWater_Pin 3
 #define trigWater_Pin 2
+#define phPO_Pin A0
+#define ammoniaAO_Pin A1
+#define DO_Pin A2
 
 #define TWO_POINT_CALIBRATION 0
 #define VREF 5000      //VREF (mv)
@@ -31,15 +29,17 @@
 #define Ro 30
 
 // Define feeding parameters
-#define MAX_FEEDING 450  // Maximum amount of feed to give
-#define MIN_FEEDING 150  // Minimum amount of feed to give
+#define MAX_FEEDING 100  // Maximum amount of feed to give
+#define MIN_FEEDING 20   // Minimum amount of feed to give
 #define PH_TARGET 7.0    // Target PH value
-#define TEMP_TARGET 25   // Target water temperature
-#define DO_TARGET 7.0    // Target dissolved oxygen level
+#define TEMP_TARGET 25   // Target Water temperature
+#define DO_TARGET 7.0    // Target Dissolved oxygen level
+#define ACTIVITY_TARGET 10
 
-#define PH_TOLERANCE 0.2
-#define TEMP_TOLERANCE 1
-#define DO_TOLERANCE 0.5
+#define ACTIVITY_TOLERANCE 5
+#define PH_TOLERANCE 1.5
+#define TEMP_TOLERANCE 2
+#define DO_TOLERANCE 1.5
 
 const uint16_t DO_Table[41] = {
   14460, 14220, 13820, 13440, 13090, 12740, 12420, 12110, 11810, 11530,
@@ -59,11 +59,16 @@ int buf[10], temp;
 
 String dissolvedOxygen;
 float ammoniaLevel;
-int waterLevel;
 float phLevel;
 float waterTemp;
 String feedsLevel;
+String fishActivity;
+int interference_count = 0;
 
+long duration, prevDuration;   // Variable to store the duration of sound wave travel
+int distance;                  // Variable to store the distance measurement
+int prev_distance = 0;         // Variable to store the previous distance measurement
+unsigned long start_time = 0;  // Variable to store the start time of the 10-second period
 String values;
 int RXData = 0;
 
@@ -71,7 +76,7 @@ OneWire oneWire(ONE_WIRE_BUS);  // for watertemp
 DallasTemperature sensors(&oneWire);
 
 int16_t readDO(uint32_t voltage_mv, uint8_t temperature_c) {
-#if TWO_POINT_CALIBRATION == 00
+#if TWO_POINT_CALIBRATION == 0
   uint16_t V_saturation = (uint32_t)CAL1_V + (uint32_t)35 * temperature_c - (uint32_t)CAL1_T * 35;
   return (voltage_mv * DO_Table[temperature_c] / V_saturation);
 #else
@@ -81,7 +86,7 @@ int16_t readDO(uint32_t voltage_mv, uint8_t temperature_c) {
 }
 
 void getSensorData() {  // trigger to get all sensor data
-  waterLevel = getWaterLvl();
+  fishActivity = getFishActivity(interference_count);
   waterTemp = getWaterTemp();
   feedsLevel = getFeedsLvl();
   dissolvedOxygen = getDO(waterTemp);
@@ -89,13 +94,59 @@ void getSensorData() {  // trigger to get all sensor data
   phLevel = getPh();
 }
 
-int getWaterLvl() {  // get water level
-  float distance, duration;
+String getFishActivity(int activity) {
+  String activity_status;
+  if(activity >= 0 && activity <= 3 ) {
+    activity_status = "Least";
+  }
+  else if(activity >= 3 && activity <= 5) {
+    activity_status = "Mid";
+  }
+  else if(activity >=5 && activity <= 10) {
+    activity_status = "High";
+  }
+  return activity_status;
+}
+void checkActivity() {
+  // Check if 10 seconds have passed since the start of the program
+  if (millis() - start_time >= 10000) {
+    // Reset the interference count and start time for the next 10-second period
+    interference_count = 0;
+    start_time = millis();
+  }
+  // Send a 10 microsecond pulse to the sensor to trigger a measurement
   digitalWrite(trigWater_Pin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigWater_Pin, HIGH);
-  delayMicroseconds(20);
+  delayMicroseconds(10);
   digitalWrite(trigWater_Pin, LOW);
+
+  // Measure the duration of the sound wave travel
+  duration = pulseIn(echoWater_Pin, HIGH);
+
+  // Calculate the distance based on the duration and the speed of sound in air
+  distance = duration * 0.034 / 2;
+
+  // Check if the distance measurement is within 10 units of the previous measurement
+  if (abs(duration - prevDuration) > 100) {
+    // Increase the interference count
+    interference_count++;
+  }
+
+  // Store the current distance measurement as the previous measurement for the next loop iteration
+  prevDuration = duration;
+  // Delay for 1 second before taking the next measurement
+  delay(1000);
+}
+
+int getWaterLvl() {  // get water level
+  float distance, duration;
+  digitalWrite(trigWater_Pin, LOW);
+  delayMicroseconds(5);
+  digitalWrite(trigWater_Pin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigWater_Pin, LOW);
+
   duration = pulseIn(echoWater_Pin, HIGH);
   distance = duration * 0.034 / 2;
 
@@ -123,10 +174,12 @@ String getFeedsLvl() {
   distance = duration * 0.034 / 2;
   if (distance < 5) {
     return status = ("Full");
-  } else if (distance < 10 && distance > 5) {
-    return status = ("Half");
-  } else if (distance < 15 && distance > 10) {
-    return status = ("Low");
+  } else if (distance > 5 && distance < 15) {
+    return status = ("3/4");
+  } else if (distance > 15 && distance < 25) {
+    return status = ("1/2");
+  } else if (distance > 25 && distance < 32) {
+    return status = ("1/4");
   } else {
     return status = ("Empty");
   }
@@ -174,35 +227,50 @@ float getPh() {
   for (int i = 2; i < 8; i++)  //take the average value of 6 center sample
     avgValue += buf[i];
   float phValue = (float)avgValue * 5.0 / 1024 / 6;  //convert the analog into millivolt
-  phValue = 3.5 * phValue;
+  phValue = 2.0 * phValue;
   return phValue;
 }
 
 void feedNow() {
   digitalWrite(motor_Pin, LOW);   //turns on motor
   digitalWrite(blower_Pin, LOW);  //turns on blower
-  delay(3000);
+  delay(1000);
   digitalWrite(motor_Pin, HIGH);  //turns off motor
   delay(2000);                    //delay by 2s
   digitalWrite(blower_Pin, HIGH);
 }
 
-void run_Dispense(String feedsLevel, String dissolvedOxygen, float phLevel, float waterTemp) {  //controls dispensing
-  int feedAmount = 0;
-  int duration = 0;
-  int delayTime = 0;
-  DO = dissolvedOxygen.toFloat();
-  if (feedsLevel != 'Empty') {
-    if (abs(phLevel - PH_TARGET) <= PH_TOLERANCE && abs(waterTemp - TEMP_TARGET) <= TEMP_TOLERANCE && abs(DO - DO_TARGET) <= DO_TOLERANCE) {
-      feedAmount = calculate_feed_dispense(DO, phLevel, waterTemp);
-      duration = calculate_feed_time(feedAmount);
-      dispenseFeed(duration);
-    } else {
-      delayTime = map(abs(PH_TARGET - phLevel) + abs(TEMP_TARGET - waterTemp) + abs(DO_TARGET - DO), 0, 15, 0, 30);
-      delay(delayTime * 1000);
-      feedNow();
+void run_Dispense(String feedsLevel, String dissolvedOxygen, float phLevel, float waterTemp) {  // Scheduled dispensing
+  int feedAmount, duration, delayTime;
+  float DO = dissolvedOxygen.toFloat();
+  if (feedsLevel != "Empty") {                                                                                                                // Checks if container is empty
+    if (abs(phLevel - PH_TARGET) <= PH_TOLERANCE && abs(waterTemp - TEMP_TARGET) <= TEMP_TOLERANCE && abs(DO - DO_TARGET) <= DO_TOLERANCE) {  // Checks if sensor data within target range
+      feedAmount = calculate_feed_to_dispense(DO, phLevel, waterTemp);                                                                        // Calculates feed amount to be dispensed
+      duration = calculate_feed_time(feedAmount);                                                                                             // Calculates how long the motor should run based on the amount of feed
+      dispenseFeed(duration);                                                                                                                 // Dispense
+    } else {                                                                                                                                  // If sensor data does not meet target range
+      delayTime = map(abs(PH_TARGET - phLevel) + abs(TEMP_TARGET - waterTemp) + abs(DO_TARGET - DO), 0, 15, 0, 60);                           // Calculates how long it should wait before getting new sensor data
+      delayTime = delayTime * 1000;
+      delay(delayTime);                                                 // Delay based on the delay calculated by the function above
+      getSensorData();                                                  // Gets new sensor data
+      feedAmount = calculate_feed_to_dispense(DO, phLevel, waterTemp);  // Calculates feed amount to be dispensed based on new sensor data
+      duration = calculate_feed_time(feedAmount);                       // Calculates how long the motor should run based on the amount of feed
+      dispenseFeed(duration);                                           // Dispense
     }
   }
+}
+
+int calculate_feed_to_dispense(float DO, float ph, float temp) {
+  int feed_amount = 0;
+  feed_amount = map(abs(PH_TARGET - ph) + abs(TEMP_TARGET - temp) + abs(DO_TARGET - DO), 0, 15, MAX_FEEDING, MIN_FEEDING);
+  return feed_amount;
+}
+
+int calculate_feed_time(int feed_amount) {
+  int feed_drop_rate = 30;  // grams per second
+  int time_needed = feed_amount / feed_drop_rate;
+  time_needed = (time_needed + 1) * 1000;  // in seconds
+  return time_needed;
 }
 
 void dispenseFeed(int duration) {
@@ -212,19 +280,6 @@ void dispenseFeed(int duration) {
   digitalWrite(motor_Pin, HIGH);   //turns off motor
   delay(2000);                     //delay by 2s
   digitalWrite(blower_Pin, HIGH);  //turns off blower
-}
-
-int calculate_feed_dispense(float DO, float ph, float temp) {
-  int feed_amount = 0;
-  feed_amount = map(abs(PH_TARGET - ph) + abs(TEMP_TARGET - temp) + abs(DO_TARGET - DO), 0, 15, MAX_FEEDING, MIN_FEEDING);
-  return feed_amount;
-}
-
-int calculate_feed_time(int feed_amount) {
-  int feed_drop_rate = 100;  // grams per second
-  int time_needed = feed_amount / feed_drop_rate;
-  time_needed = (time_needed + 1) * 1000;  // in seconds
-  return time_needed;
 }
 
 void setup() {
@@ -243,16 +298,11 @@ void setup() {
   digitalWrite(motor_Pin, HIGH);  //turns off motor               //delay by 2s
   digitalWrite(blower_Pin, HIGH);
   sensors.begin();  // temperature sensor
+  Serial.flush();
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  getSensorData();
-  values = (dissolvedOxygen + ',' + waterTemp + ',' + waterLevel + ',' + feedsLevel + ',' + phLevel + ',' + ammoniaLevel);
-  Serial.flush();
-  delay(2000);
-  Serial.println(values);
-
   if (Serial.available() > 0) {
     RXData = Serial.read();
     switch (RXData) {
@@ -270,5 +320,10 @@ void loop() {
         break;
     }
   }
-  delay(2000);
+  delay(3000);
+  checkActivity();
+  getSensorData();
+  values = (dissolvedOxygen + ',' + waterTemp + ',' + fishActivity + ',' + feedsLevel + ',' + phLevel + ',' + ammoniaLevel + ',');
+  Serial.println(values);
+  Serial.flush();
 }

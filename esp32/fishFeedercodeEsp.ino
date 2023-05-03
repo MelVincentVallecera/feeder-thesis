@@ -6,8 +6,8 @@
 #include <WiFiUdp.h>
 #include <string.h>
 
-#define WIFI_SSID "Galaxy A02s8146"
-#define WIFI_PASSWORD "rapx7424"
+#define WIFI_SSID "Balais Globe"
+#define WIFI_PASSWORD "balaisglobe123"
 #define FIREBASE_HOST "fish-feed-fe756-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define FIREBASE_AUTH "AIzaSyAkJnRiEeAwfSSLv7-2xdfUhTTKFrlVoXY"
 
@@ -38,7 +38,6 @@ void checkSchedules() {
   Firebase.getInt(feed, "count");
   n = feed.to<int>();
   timeClient.update();
-  String currentTime = String(timeClient.getHours()) + ":" + String(timeClient.getMinutes());
 
   for (i = 0; i < n; i++) {
     String path = "timers/timer" + String(i) + "/time";
@@ -46,16 +45,13 @@ void checkSchedules() {
     stimer = timer.to<String>();
     Str[i] = stimer.substring(0, 5);
   }
+  String currentTime = String(timeClient.getHours()) + ":" + String(timeClient.getMinutes());
   for (int j = 0; j < n; j++) {
     if (Str[j] == currentTime) {
       Serial.println("2");
-      delay(60000);
+      delay(50000);
     }
   }
-  for (i = 0; i < n; i++) {  // clear
-    Str[i] = "00:00";
-  }
-  delay(3000);
 }
 
 void setup() {
@@ -70,6 +66,8 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   timeClient.update();
+  checkFeednow();
+  checkSchedules();
   bool Sr = false;
   while (Serial.available() > 0) {
     sensor_data = Serial.readString();
@@ -84,7 +82,6 @@ void loop() {
     int fourthCommaIndex = values.indexOf(',', thirdCommaIndex + 1);
     int fifthCommaIndex = values.indexOf(',', fourthCommaIndex + 1);
     int sixthCommaIndex = values.indexOf(',', fifthCommaIndex + 1);
-    int seventhCommaIndex = values.indexOf(',', sixthCommaIndex + 1);
 
     //get sensors data from values variable by  spliting by commas and put in to variables
     String dissolvedOxygen = values.substring(0, firstCommaIndex);
@@ -93,7 +90,6 @@ void loop() {
     String feeds = values.substring(thirdCommaIndex + 1, fourthCommaIndex);
     String ph = values.substring(fourthCommaIndex + 1, fifthCommaIndex);
     String ammonia = values.substring(fifthCommaIndex + 1, sixthCommaIndex);
-    String ir = values.substring(sixthCommaIndex + 1, seventhCommaIndex);
 
     //store inside data as string in firebase
     Firebase.setString(sensor, "/sensors/dissolvedOxygen", dissolvedOxygen);
@@ -102,9 +98,5 @@ void loop() {
     Firebase.setString(sensor, "/sensors/feeds", feeds);
     Firebase.setString(sensor, "/sensors/ph", ph);
     Firebase.setString(sensor, "/sensors/ammonia", ammonia);
-    Firebase.setString(sensor, "/sensors/ir", ir);
-    delay(1000);
   }
-  checkFeednow();
-  checkSchedules();
 }
